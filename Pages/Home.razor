@@ -1,0 +1,479 @@
+@page "/"
+@using PointGraph.Models
+@using PointGraph.Math
+@using System.Text
+@using Microsoft.AspNetCore.Components.Web
+
+<PageTitle>Polynomial Point Graph</PageTitle>
+
+<div class="container-fluid mt-4">
+    <div class="row">
+        <!-- グラフ描画エリア -->
+        <div class="col-auto position-relative" style="width: 540px; height: 540px;">
+            <svg id="graphCanvas" 
+                 width="500" 
+                 height="500" 
+                 @onmousemove="OnMouseMove" 
+                 @onmouseup="OnMouseUp"
+                 @onmouseleave="OnMouseUp"
+                 style="border:1px solid #ccc; background-color: #f9f9f9; user-select: none;">
+                
+                <!-- 1. グリッド線 -->
+                @for (double offset = 0; offset <= _coordinateSystem.Width / 2; offset += _coordinateSystem.Scale)
+                {
+                    var rightX = _coordinateSystem.Width / 2 + offset;
+                    var leftX = _coordinateSystem.Width / 2 - offset;
+                    var bottomY = _coordinateSystem.Height / 2 + offset;
+                    var topY = _coordinateSystem.Height / 2 - offset;
+
+                    <line x1="@rightX" y1="0" x2="@rightX" y2="@_coordinateSystem.Height" stroke="#e9e9e9" stroke-width="1" />
+                    <line x1="0" y1="@bottomY" x2="@_coordinateSystem.Width" y2="@bottomY" stroke="#e9e9e9" stroke-width="1" />
+                    
+                    if (offset > 0)
+                    {
+                        <line x1="@leftX" y1="0" x2="@leftX" y2="@_coordinateSystem.Height" stroke="#e9e9e9" stroke-width="1" />
+                        <line x1="0" y1="@topY" x2="@_coordinateSystem.Width" y2="@topY" stroke="#e9e9e9" stroke-width="1" />
+                    }
+                }
+
+                <!-- 2. 座標軸 -->
+                <line x1="0" y1="@(_coordinateSystem.Height/2)" 
+                      x2="@_coordinateSystem.Width" y2="@(_coordinateSystem.Height/2)" 
+                      stroke="#333" stroke-width="2" />
+                <line x1="@(_coordinateSystem.Width/2)" y1="0" 
+                      x2="@(_coordinateSystem.Width/2)" y2="@_coordinateSystem.Height" 
+                      stroke="#333" stroke-width="2" />
+
+                <!-- 軸矢印 -->
+                <polygon points="@($"{_coordinateSystem.Width - 10},{_coordinateSystem.Height/2 - 4} {_coordinateSystem.Width},{_coordinateSystem.Height/2} {_coordinateSystem.Width - 10},{_coordinateSystem.Height/2 + 4}")" fill="#333" />
+                <polygon points="@($"{_coordinateSystem.Width/2 - 4},10 {_coordinateSystem.Width/2},0 {_coordinateSystem.Width/2 + 4},10")" fill="#333" />
+
+                <!-- 軸ラベル -->
+                <svg:text x="@(_coordinateSystem.Width - 15)" y="@(_coordinateSystem.Height/2 + 20)" fill="#333" font-size="14" font-weight="bold">x</svg:text>
+                <svg:text x="@(_coordinateSystem.Width/2 - 18)" y="22" fill="#333" font-size="14" font-weight="bold">y</svg:text>
+                <svg:text x="@(_coordinateSystem.Width/2 - 16)" y="@(_coordinateSystem.Height/2 + 18)" fill="#666" font-size="12">O</svg:text>
+
+                <!-- 3. 多項式曲線 -->
+                @if (_polynomialCoefficients != null && _polynomialCoefficients.Length > 0)
+                {
+                    <path d="@GetPolynomialPathData()" fill="none" stroke="blue" stroke-width="2" />
+                }
+
+                <!-- 4. 2次関数の場合の対称軸と頂点の描画（チェックON時） -->
+                @if (_showVertexAndAxis && _points.Count == 3)
+                {
+                    var vertex = GetVertex();
+                    if (vertex != null)
+                    {
+                        var screenVx = _coordinateSystem.CartesianToScreen(vertex.Value.X.ToDouble(), 0).X;
+                        var screenVy = _coordinateSystem.CartesianToScreen(0, vertex.Value.Y.ToDouble()).Y;
+                        
+                        <line x1="@screenVx" y1="0" x2="@screenVx" y2="@_coordinateSystem.Height" 
+                              stroke="purple" stroke-width="1.5" stroke-dasharray="4 4" />
+                        
+                        <circle cx="@screenVx" cy="@screenVy" r="5" fill="purple" stroke="white" stroke-width="1.5" />
+                        
+                        <svg:text x="@(screenVx + 8)" y="@(screenVy + 15)" fill="purple" font-size="12" font-weight="bold">
+                            頂点
+                        </svg:text>
+                    }
+                }
+
+                <!-- 5. 点のラベル表示 -->
+                @for (int i = 0; i < _points.Count; i++)
+                {
+                    var pt = _points[i];
+                    var (cartX, cartY) = _coordinateSystem.ScreenToCartesian(pt.X, pt.Y);
+                    <svg:text x="@(pt.X + 10)" y="@(pt.Y - 10)" fill="@pt.Color" font-size="12" font-family="Arial" font-weight="bold">
+                        @($"{(char)('A' + i)} ({cartX:F1}, {cartY:F1})")
+                    </svg:text>
+                }
+
+                <!-- 6. ドラッグ可能なドット群 -->
+                @foreach (var pt in _points)
+                {
+                    <circle cx="@pt.X" cy="@pt.Y" r="6" 
+                            fill="@pt.Color" stroke="white" stroke-width="2"
+                            style="cursor: @(pt.IsDragging ? "grabbing" : "grab"); filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.3));"
+                            @onmousedown="(e) => OnMouseDown(e, pt)" />
+                }
+            </svg>
+
+            <!-- 操作ボタン群 -->
+            <div id="controls" class="position-absolute" style="left: 20px; top: 450px; user-select: none; z-index: 10;">
+                <button id="addPointBtn" class="graph-btn" @onclick="AddPoint">＋</button>
+                <button id="deletePointBtn" class="graph-btn" @onclick="DeletePoint" disabled="@(_points.Count <= 2)">ー</button>
+            </div>
+        </div>
+
+        <!-- コントロールと詳細パネル -->
+        <div class="col-md-5">
+            <!-- 多項式式表示 (MathML) -->
+            <div id="infomationpoint" class="card p-3 shadow-sm mb-3" style="min-width: 300px;">
+                <h5 class="card-title">多項式の式</h5>
+                @if (string.IsNullOrEmpty(_errorMessage))
+                {
+                <div class="coord p-2 bg-white rounded border text-center" style="min-height: 50px; display: flex; align-items: center; justify-content: center;">
+                    @((MarkupString)GetFormattedPolynomial())
+                </div>
+                }
+                @if (!string.IsNullOrEmpty(_errorMessage))
+                {
+                    <div class="alert alert-warning mt-2 mb-0 small py-1">@_errorMessage</div>
+                }
+            </div>
+
+            <!-- 機能切り替え設定 -->
+            <div class="card p-3 shadow-sm mb-3">
+                <h5 class="card-title">オプション設定</h5>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="vertexCheck" @bind="_showVertexAndAxis" disabled="@(_points.Count != 3)" />
+                    <label class="form-check-label" for="vertexCheck">
+                        頂点と対称軸を表示する (3点/2次関数の場合のみ)
+                    </label>
+                </div>
+                @if (_points.Count == 3 && _showVertexAndAxis)
+                {
+                    var vertexText = GetFormattedVertex();
+                    if (!string.IsNullOrEmpty(vertexText))
+                    {
+                        <div class="mt-3 p-2 bg-white rounded border text-purple text-center">
+                            @((MarkupString)vertexText)
+                        </div>
+                    }
+                }
+            </div>
+
+            <!-- 点の座標直接編集フォーム -->
+            <div class="card p-3 shadow-sm">
+                <h5 class="card-title mb-2">各点の座標入力</h5>
+                <div class="points-form-container" style="max-height: 250px; overflow-y: auto;">
+                    @for (int i = 0; i < _points.Count; i++)
+                    {
+                        var pt = _points[i];
+                        var index = i;
+                        var (cartX, cartY) = _coordinateSystem.ScreenToCartesian(pt.X, pt.Y);
+                        
+                        <div class="mb-2 p-2 border rounded" style="border-left: 5px solid @pt.Color !important; background-color: #fafafa;">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-bold" style="color: @pt.Color">点 @((char)('A' + index))</span>
+                                <span class="text-muted font-monospace" style="font-size: 11px;">カラー: @pt.Color</span>
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text bg-white">x</span>
+                                        <input type="number" class="form-control" step="0.1" 
+                                               value="@System.Math.Round(cartX, 2)" 
+                                               @onchange="@(e => OnPointXInput(pt, e.Value?.ToString()))" />
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text bg-white">y</span>
+                                        <input type="number" class="form-control" step="0.1" 
+                                               value="@System.Math.Round(cartY, 2)" 
+                                               @onchange="@(e => OnPointYInput(pt, e.Value?.ToString()))" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .graph-btn {
+        background-color: #e0e0e0;
+        border: 1px solid #999;
+        border-radius: 50%;
+        font-size: 13px;
+        height: 36px;
+        width: 36px;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        margin-right: 5px;
+    }
+    
+    .graph-btn:hover {
+        background-color: #d0d0d0;
+    }
+    
+    .graph-btn:active {
+        background-color: #b0b0b0;
+    }
+    
+    .graph-btn:disabled {
+        background-color: #f0f0f0;
+        color: #999;
+        cursor: not-allowed;
+    }
+</style>
+
+@code {
+    private readonly CoordinateSystem _coordinateSystem = new CoordinateSystem(width: 500, height: 500, scale: 20);
+    private readonly List<Point2D> _points = new List<Point2D>();
+    private Fraction[]? _polynomialCoefficients;
+    private bool _showVertexAndAxis = true;
+    private readonly Random _random = new Random();
+
+    private readonly string[] _colors = { 
+        "#ff6b6b", "#4ecdc4", "#95e1d3", "#f7b731", 
+        "#5f27cd", "#00d2d3", "#ff9ff3", "#54a0ff" 
+    };
+
+    protected override void OnInitialized()
+    {
+        // 初期ポイントを3つ追加
+        _points.Add(new Point2D("point1", 150, 150, "#ff6b6b", "A"));
+        _points.Add(new Point2D("point2", 250, 200, "#4ecdc4", "B"));
+        _points.Add(new Point2D("point3", 350, 150, "#95e1d3", "C"));
+
+        RecalculatePolynomial();
+    }
+
+    private void RecalculatePolynomial()
+    {
+        if (_points.Count == 0) return;
+
+        Fraction[] xa = new Fraction[_points.Count];
+        Fraction[] ya = new Fraction[_points.Count];
+
+        for (int i = 0; i < _points.Count; i++)
+        {
+            var (cartX, cartY) = _coordinateSystem.ScreenToCartesian(_points[i].X, _points[i].Y);
+            // 浮動小数点数の精度問題で巨大な分数にならないよう、事前に10桁で丸める
+            xa[i] = Fraction.FromDouble(System.Math.Round(cartX, 10));
+            ya[i] = Fraction.FromDouble(System.Math.Round(cartY, 10));
+        }
+
+        // X座標が重複していると補間できない（divide by zero）ためチェック
+        bool hasDuplicateX = false;
+        for (int i = 0; i < xa.Length - 1; i++)
+        {
+            for (int j = i + 1; j < xa.Length; j++)
+            {
+                if (xa[i] == xa[j]) { hasDuplicateX = true; break; }
+            }
+        }
+
+        if (hasDuplicateX)
+        {
+            _polynomialCoefficients = null;
+            _errorMessage = "x座標が重複している点があるため、多項式を計算できません。";
+            return;
+        }
+
+        _errorMessage = null;
+
+        try
+        {
+            _polynomialCoefficients = PolynomialSolver.SolvePolynomialParameters(xa, ya);
+        }
+        catch (Exception ex)
+        {
+            _polynomialCoefficients = null;
+            _errorMessage = $"計算エラー: {ex.Message}";
+        }
+    }
+
+    private string? _errorMessage = null;
+
+    private void OnMouseDown(MouseEventArgs e, Point2D pt)
+    {
+        pt.IsDragging = true;
+        pt.DragStartX = e.ClientX;
+        pt.DragStartY = e.ClientY;
+        pt.PointStartX = pt.X;
+        pt.PointStartY = pt.Y;
+    }
+
+    private void OnMouseMove(MouseEventArgs e)
+    {
+        var draggingPoint = _points.FirstOrDefault(p => p.IsDragging);
+        if (draggingPoint != null)
+        {
+            double diffX = e.ClientX - draggingPoint.DragStartX;
+            double diffY = e.ClientY - draggingPoint.DragStartY;
+
+            double newX = draggingPoint.PointStartX + diffX;
+            double newY = draggingPoint.PointStartY + diffY;
+
+            draggingPoint.X = System.Math.Max(6, System.Math.Min(newX, _coordinateSystem.Width - 6));
+            draggingPoint.Y = System.Math.Max(6, System.Math.Min(newY, _coordinateSystem.Height - 6));
+
+            RecalculatePolynomial();
+        }
+    }
+
+    private void OnMouseUp()
+    {
+        foreach (var pt in _points)
+        {
+            pt.IsDragging = false;
+        }
+    }
+
+    private void AddPoint()
+    {
+        string newId = $"point{_points.Count + 1}";
+        string newColor = _colors[_points.Count % _colors.Length];
+        
+        double newX = _random.Next(24, (int)_coordinateSystem.Width - 24);
+        double newY = _random.Next(24, (int)_coordinateSystem.Height - 24);
+
+        _points.Add(new Point2D(newId, newX, newY, newColor, ((char)('A' + _points.Count)).ToString()));
+        RecalculatePolynomial();
+    }
+
+    private void DeletePoint()
+    {
+        if (_points.Count > 2)
+        {
+            _points.RemoveAt(_points.Count - 1);
+            RecalculatePolynomial();
+        }
+    }
+
+    private void OnPointXInput(Point2D pt, string? value)
+    {
+        if (double.TryParse(value, out double cartX))
+        {
+            var (_, currentCartY) = _coordinateSystem.ScreenToCartesian(pt.X, pt.Y);
+            var (newScreenX, _) = _coordinateSystem.CartesianToScreen(cartX, currentCartY);
+            
+            pt.X = System.Math.Max(6, System.Math.Min(newScreenX, _coordinateSystem.Width - 6));
+            RecalculatePolynomial();
+        }
+    }
+
+    private void OnPointYInput(Point2D pt, string? value)
+    {
+        if (double.TryParse(value, out double cartY))
+        {
+            var (currentCartX, _) = _coordinateSystem.ScreenToCartesian(pt.X, pt.Y);
+            var (_, newScreenY) = _coordinateSystem.CartesianToScreen(currentCartX, cartY);
+            
+            pt.Y = System.Math.Max(6, System.Math.Min(newScreenY, _coordinateSystem.Height - 6));
+            RecalculatePolynomial();
+        }
+    }
+
+    private (Fraction X, Fraction Y)? GetVertex()
+    {
+        if (_polynomialCoefficients == null || _polynomialCoefficients.Length != 3) return null;
+        
+        var c = _polynomialCoefficients[0];
+        var b = _polynomialCoefficients[1];
+        var a = _polynomialCoefficients[2];
+        
+        if (a.Numerator == 0) return null;
+
+        var vx = -b / (a * new Fraction(2));
+        var vy = c - (b * b) / (a * new Fraction(4));
+        return (vx, vy);
+    }
+
+    private string GetFormattedVertex()
+    {
+        var vertex = GetVertex();
+        if (vertex == null) return string.Empty;
+        
+        return $"<math display=\"block\" style=\"font-size: 16px; color: purple;\"><mtext>軸:&nbsp;</mtext><mi>x</mi><mo>=</mo>{vertex.Value.X.ToMathML()}<mtext>&nbsp;&nbsp;頂点:&nbsp;</mtext><mo>(</mo>{vertex.Value.X.ToMathML()}<mo>,</mo>{vertex.Value.Y.ToMathML()}<mo>)</mo></math>";
+    }
+
+    private string GetPolynomialPathData()
+    {
+        if (_polynomialCoefficients == null || _polynomialCoefficients.Length == 0) 
+            return string.Empty;
+
+        var pathBuilder = new StringBuilder();
+        bool first = true;
+
+        for (double px = 0; px <= _coordinateSystem.Width; px += 2)
+        {
+            var (x, _) = _coordinateSystem.ScreenToCartesian(px, 0);
+            
+            double y = 0;
+            for (int i = _polynomialCoefficients.Length - 1; i >= 0; i--)
+            {
+                y = _polynomialCoefficients[i].ToDouble() + x * y;
+            }
+
+            var (_, py) = _coordinateSystem.CartesianToScreen(x, y);
+
+            if (double.IsNaN(py) || double.IsInfinity(py))
+                continue;
+
+            if (first)
+            {
+                pathBuilder.Append($"M {px:F1} {py:F1}");
+                first = false;
+            }
+            else
+            {
+                pathBuilder.Append($" L {px:F1} {py:F1}");
+            }
+        }
+
+        return pathBuilder.ToString();
+    }
+
+    private string GetFormattedPolynomial()
+    {
+        if (_polynomialCoefficients == null || _polynomialCoefficients.Length == 0) 
+            return "<math display=\"block\"><mi>y</mi><mo>=</mo><mn>0</mn></math>";
+
+        var sb = new StringBuilder();
+        sb.Append("<math display=\"block\" style=\"font-size: 20px;\"><mi>y</mi><mo>=</mo>");
+
+        bool isFirst = true;
+
+        for (int i = _polynomialCoefficients.Length - 1; i >= 0; i--)
+        {
+            var coeff = _polynomialCoefficients[i];
+            if (coeff.Numerator == 0) continue;
+
+            bool isNeg = coeff.Numerator < 0;
+            
+            if (!isFirst)
+            {
+                sb.Append(isNeg ? "<mo>-</mo>" : "<mo>+</mo>");
+            }
+            else if (isNeg)
+            {
+                sb.Append("<mo>-</mo>");
+            }
+
+            var absCoeff = new Fraction(System.Math.Abs(coeff.Numerator), coeff.Denominator);
+            bool showCoeff = absCoeff != Fraction.One || i == 0;
+
+            if (showCoeff)
+            {
+                sb.Append(absCoeff.ToMathML(includeSign: false));
+            }
+
+            if (i == 1)
+            {
+                sb.Append("<mi>x</mi>");
+            }
+            else if (i > 1)
+            {
+                sb.Append($"<msup><mi>x</mi><mn>{i}</mn></msup>");
+            }
+
+            isFirst = false;
+        }
+
+        if (isFirst)
+        {
+            sb.Append("<mn>0</mn>");
+        }
+
+        sb.Append("</math>");
+        return sb.ToString();
+    }
+}

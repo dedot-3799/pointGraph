@@ -1,0 +1,26 @@
+## .NET / Visual Studio のビルド成果物
+bin/
+obj/
+
+## ユーザー固有の設定ファイル（開発環境の依存情報）
+.vs/
+*.user
+*.userosscache
+*.suo
+
+## ローカル開発用の発行（Publish）出力フォルダ
+## (dotnet publish コマンドで生成される一時的なフォルダ)
+**/AppPackages/
+**/BundleArtifacts/
+publish/
+bin/Release/net*/publish/
+
+## ツールやIDE（VS Codeなど）の設定ファイル
+.vscode/
+.idea/
+
+## OSが自動生成する一時ファイル
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
