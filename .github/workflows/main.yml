@@ -23,9 +23,8 @@ jobs:
 
       - name: Prepare directory structure
         run: |
-          mkdir -p publish/my-blazor-app
-          cp -r release/wwwroot/* publish/my-blazor-app/
-          cp publish/my-blazor-app/index.html publish/my-blazor-app/404.html
+          cp -r release/wwwroot/* publish/
+          cp publish/index.html publish/404.html
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
