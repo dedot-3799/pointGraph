@@ -16,17 +16,19 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.301
+          dotnet-version: 10.0.x
 
       - name: Publish
         run: dotnet publish -c Release -o release --nologo
 
-      - name: Create 404.html
-        run: cp release/wwwroot/index.html release/wwwroot/404.html
+      - name: Prepare directory structure
+        run: |
+          mkdir -p publish/my-blazor-app
+          cp -r release/wwwroot/* publish/my-blazor-app/
+          cp publish/my-blazor-app/index.html publish/my-blazor-app/404.html
 
-      # デプロイ
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./release/wwwroot
+          publish_dir: ./publish
