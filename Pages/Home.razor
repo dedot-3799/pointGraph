@@ -102,7 +102,7 @@
             <!-- 操作ボタン群 -->
             <div id="controls" class="position-absolute" style="left: 20px; top: 450px; user-select: none; z-index: 10;">
                 <button id="addPointBtn" class="graph-btn" @onclick="AddPoint">＋</button>
-                <button id="deletePointBtn" class="graph-btn" @onclick="DeletePoint" disabled="@(_points.Count <= 2)">ー</button>
+                <button id="deletePointBtn" class="graph-btn" @onclick="DeletePoint" disabled="@(_points.Count <= 2)">―</button>
             </div>
         </div>
 
@@ -441,11 +441,11 @@
             
             if (!isFirst)
             {
-                sb.Append(isNeg ? "<mo>-</mo>" : "<mo>+</mo>");
+                sb.Append(isNeg ? "<mo>―</mo>" : "<mo>+</mo>");
             }
             else if (isNeg)
             {
-                sb.Append("<mo>-</mo>");
+                sb.Append("<mo>―</mo>");
             }
 
             var absCoeff = new Fraction(System.Math.Abs(coeff.Numerator), coeff.Denominator);
