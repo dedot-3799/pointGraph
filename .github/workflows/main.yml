@@ -23,6 +23,7 @@ jobs:
 
       - name: Prepare directory structure
         run: |
+          mkdir -p publish
           cp -r release/wwwroot/* publish/
           cp publish/index.html publish/404.html
 
