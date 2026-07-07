@@ -193,7 +193,7 @@ namespace PointGraph.Math
             bool isNeg = num < 0;
             if (isNeg) num = -num;
 
-            string signHtml = isNeg ? "<mo>-</mo>" : (includeSign ? "<mo>+</mo>" : "");
+            string signHtml = isNeg ? "<mo>―</mo>" : (includeSign ? "<mo>+</mo>" : "");
 
             if (Denominator == 1)
             {
